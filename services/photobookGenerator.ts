@@ -1,0 +1,229 @@
+import type { Photo } from '../types';
+
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+  });
+};
+
+const escapeHtml = (unsafe: string) => {
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
+
+type AlbumData = Record<string, { src: string; caption: string; title: string; tags: string[] }[]>;
+
+const generateHtml = (albums: AlbumData): string => {
+    const albumElements = Object.entries(albums)
+      .map(([albumName, photos]) => {
+          const photoElements = photos.map(
+              (photo) => {
+                const tagElements = photo.tags.map(tag => 
+                    `<span class="photobook-tag inline-block bg-indigo-100 text-indigo-800 text-sm font-medium px-3 py-1 rounded-full">${escapeHtml(tag)}</span>`
+                ).join('');
+                
+                return `
+                <div class="bg-white rounded-lg shadow-lg overflow-hidden break-inside-avoid mb-8">
+                    <div class="p-6 md:p-8 pb-0">
+                        <h3 class="font-serif text-2xl font-bold text-gray-800">${escapeHtml(photo.title)}</h3>
+                    </div>
+                    <img src="${photo.src}" alt="${escapeHtml(photo.title)}" class="w-full h-auto object-cover mt-4">
+                    <div class="p-6 md:p-8">
+                        <div class="flex flex-wrap gap-2 mb-4 photobook-tags">
+                            ${tagElements}
+                        </div>
+                        <p class="font-serif text-lg text-gray-700 leading-relaxed">${escapeHtml(photo.caption)}</p>
+                    </div>
+                </div>`
+              }
+          ).join('');
+
+          return `
+            <section class="album-section mb-16">
+              <h2 class="text-3xl sm:text-4xl font-bold font-serif text-gray-800 mb-8 pb-2 border-b-2 border-gray-200">${escapeHtml(albumName)}</h2>
+              <div class="columns-1 md:columns-2 gap-8">
+                ${photoElements}
+              </div>
+            </section>
+          `;
+      })
+      .join('');
+
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>My AI Photobook</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+            <script>
+              tailwind.config = {
+                theme: {
+                  extend: {
+                    fontFamily: {
+                      sans: ['Poppins', 'sans-serif'],
+                      serif: ['Lora', 'serif'],
+                    },
+                  },
+                },
+              }
+            </script>
+            <style>
+              @media (prefers-color-scheme: dark) {
+                body {
+                  background-color: #111827; /* gray-900 */
+                }
+                .album-section h2, header h1, .text-gray-800 {
+                  color: #f9fafb; /* gray-50 */
+                }
+                .bg-white {
+                  background-color: #1f2937; /* gray-800 */
+                }
+                .text-gray-700 {
+                  color: #d1d5db; /* gray-300 */
+                }
+                .text-gray-600 {
+                  color: #9ca3af; /* gray-400 */
+                }
+                .border-b-2 {
+                   border-color: #374151; /* gray-700 */
+                }
+                .photobook-tag {
+                  background-color: #312e81 !important; /* indigo-900 */
+                  color: #a5b4fc !important; /* indigo-300 */
+                }
+                footer p {
+                    color: #6b7280; /* gray-500 */
+                }
+              }
+            </style>
+        </head>
+        <body class="bg-gray-100 font-sans">
+            <div class="max-w-5xl mx-auto p-4 sm:p-8">
+                <header class="text-center mb-12">
+                    <h1 class="text-4xl sm:text-5xl font-bold font-serif text-gray-800">My AI Photobook</h1>
+                    <p class="mt-4 text-lg sm:text-xl text-gray-600">A collection of moments and memories.</p>
+                </header>
+                <main>
+                    ${albumElements}
+                </main>
+                <footer class="text-center mt-12 py-6 border-t border-gray-200">
+                  <p class="text-gray-500">Generated by AI Photobook Captioner</p>
+                </footer>
+            </div>
+        </body>
+        </html>
+    `;
+};
+
+export const savePhotobook = async (photos: Photo[]) => {
+    const photosToSave = photos.filter(p => !p.isLoading && !p.error && p.caption && p.album);
+    
+    if (photosToSave.length === 0) {
+        alert("No photos with captions are ready to save. Please wait for captions to be generated or for errors to be resolved.");
+        return;
+    }
+    
+    const albums: AlbumData = {};
+
+    for (const photo of photosToSave) {
+        if (!albums[photo.album]) {
+            albums[photo.album] = [];
+        }
+        const base64Src = await fileToBase64(photo.file);
+        albums[photo.album].push({
+            src: base64Src,
+            caption: photo.caption,
+            title: photo.title,
+            tags: photo.tags,
+        });
+    }
+
+    const htmlContent = generateHtml(albums);
+
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ai-photobook.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
+
+const dataUrlToFile = async (dataUrl: string, filename: string): Promise<File> => {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    return new File([blob], filename, { type: blob.type });
+};
+
+export const importPhotobook = async (htmlFile: File): Promise<Photo[]> => {
+    const fileContent = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsText(htmlFile);
+    });
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(fileContent, 'text/html');
+    const albumElements = doc.querySelectorAll('.album-section');
+
+    if (albumElements.length === 0 && doc.body.innerText.trim() !== '') {
+        const title = doc.querySelector('h1');
+        if (!title || !title.textContent?.includes('My AI Photobook')) {
+             throw new Error("The selected file does not appear to be a valid AI Photobook file.");
+        }
+    }
+
+    const importedPhotos: Photo[] = [];
+
+    for (const albumElement of albumElements) {
+        const albumTitleEl = albumElement.querySelector('h2');
+        const albumName = albumTitleEl?.textContent || 'Uncategorized';
+        const photoElements = albumElement.querySelectorAll('.break-inside-avoid');
+        
+        for (let i = 0; i < photoElements.length; i++) {
+            const element = photoElements[i];
+            const img = element.querySelector('img');
+            const p = element.querySelector('p');
+            const h3 = element.querySelector('h3');
+            const tagElements = element.querySelectorAll('.photobook-tag');
+
+            if (img && p && h3) {
+                const src = img.src;
+                const caption = p.textContent || '';
+                const title = h3.textContent || '';
+                const tags = Array.from(tagElements).map(t => t.textContent || '').filter(Boolean);
+                const fileExtension = src.split(';')[0].split('/')[1] || 'jpeg';
+                const file = await dataUrlToFile(src, `imported-photo-${i + 1}.${fileExtension}`);
+
+                importedPhotos.push({
+                    id: crypto.randomUUID(),
+                    src: src,
+                    file: file,
+                    title: title,
+                    caption: caption,
+                    album: albumName,
+                    tags: tags,
+                    isLoading: false,
+                });
+            }
+        }
+    }
+
+    return importedPhotos;
+};

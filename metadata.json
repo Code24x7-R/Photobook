@@ -1,0 +1,5 @@
+{
+  "name": "Photobook Captioner",
+  "description": "An application that uses AI to automatically generate thoughtful, paragraph-length captions for your uploaded photos, creating a beautiful digital photobook.",
+  "requestFramePermissions": []
+}
